@@ -6,7 +6,7 @@ import PainelAluno from './PainelAluno'
 
 type Aluno = {
   matricula: number; nome: string; turma: string; turma_id: number
-  email: string | null; ativo: boolean; em_atraso: boolean
+  email: string | null; ativo: boolean; em_atraso: boolean; foto_url?: string | null
 }
 
 const CORES = [
@@ -54,7 +54,7 @@ function AlunosContent() {
 
     let query = supabase
       .from('alunos')
-      .select('matricula, nome, email, ativo, turma_id, turmas(nome)')
+      .select('matricula, nome, email, foto_url, ativo, turma_id, turmas(nome)')
       .eq('ativo', true)
       .order('nome')
       .limit(100)
@@ -84,7 +84,7 @@ function AlunosContent() {
       .map(a => ({
         matricula: a.matricula, nome: a.nome, turma: (a.turmas as any)?.nome ?? '',
         turma_id: a.turma_id, email: a.email, ativo: a.ativo,
-        em_atraso: atrasadosSet.has(a.matricula),
+        em_atraso: atrasadosSet.has(a.matricula), foto_url: (a as any).foto_url ?? null,
       }))
 
     setAlunos(lista)

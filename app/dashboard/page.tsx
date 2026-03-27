@@ -8,7 +8,8 @@ type Resumo = {
 }
 type PorTurma        = { turma: string; total: number }
 type LivroTop        = { titulo: string; autor: string; total: number }
-type AtrasadoPorTurma = { turma: string; total: number }
+type LeitoresPorTurma = { turma: string; total: number }
+type AlunoLeitor = { matricula: number; nome: string; turma: string; total: number }
 type Periodo         = 'mes' | 'mes_passado' | 'ano'
 
 function fmt(d: string) {
@@ -33,7 +34,8 @@ export default function DashboardPage() {
   const [resumo, setResumo]       = useState<Resumo | null>(null)
   const [porTurma, setPorTurma]   = useState<PorTurma[]>([])
   const [livrosTop, setLivrosTop] = useState<LivroTop[]>([])
-  const [atrasados, setAtrasados] = useState<AtrasadoPorTurma[]>([])
+  const [leitoresPorTurma, setLeitoresPorTurma] = useState<LeitoresPorTurma[]>([])
+  const [alunosLeitores, setAlunosLeitores] = useState<AlunoLeitor[]>([])
   const [periodo, setPeriodo]     = useState<Periodo>('mes')
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro]           = useState('')
@@ -95,12 +97,47 @@ export default function DashboardPage() {
         setLivrosTop(Object.entries(cont).map(([titulo, v]) => ({ titulo, ...v })).sort((a, b) => b.total - a.total).slice(0, 5))
       }
 
-      // Atrasados por turma (sempre tempo real)
-      const { data: atrasTurma } = await supabase.from('vw_emprestimos_atrasados').select('turma')
-      if (atrasTurma) {
-        const cont: Record<string, number> = {}
-        atrasTurma.forEach(({ turma }) => { if (turma) cont[turma] = (cont[turma] ?? 0) + 1 })
-        setAtrasados(Object.entries(cont).map(([turma, total]) => ({ turma, total })).sort((a, b) => b.total - a.total))
+      // Leitores por turma (alunos únicos no período)
+      const { data: leitoresTurma } = await supabase
+        .from('vw_painel_aluno')
+        .select('turma, matricula')
+        .gte('data_saida', dataInicio)
+        .lte('data_saida', dataFim)
+
+      if (leitoresTurma) {
+        const unicos = new Map<string, Set<number>>()
+        leitoresTurma.forEach(({ turma, matricula }) => {
+          if (!turma || !matricula) return
+          if (!unicos.has(turma)) unicos.set(turma, new Set())
+          unicos.get(turma)!.add(matricula)
+        })
+        setLeitoresPorTurma(
+          Array.from(unicos.entries())
+            .map(([turma, ids]) => ({ turma, total: ids.size }))
+            .sort((a, b) => b.total - a.total)
+        )
+      }
+
+      // Alunos leitores (ranking por quantidade de empréstimos no período)
+      const { data: leitores } = await supabase
+        .from('vw_painel_aluno')
+        .select('matricula, aluno_nome, turma')
+        .gte('data_saida', dataInicio)
+        .lte('data_saida', dataFim)
+
+      if (leitores) {
+        const cont: Record<string, AlunoLeitor> = {}
+        leitores.forEach(({ matricula, aluno_nome, turma }) => {
+          if (!matricula || !aluno_nome) return
+          const key = String(matricula)
+          if (!cont[key]) cont[key] = { matricula, nome: aluno_nome, turma: turma ?? '', total: 0 }
+          cont[key].total++
+        })
+        setAlunosLeitores(
+          Object.values(cont)
+            .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome))
+            .slice(0, 6)
+        )
       }
     } catch (e: any) {
       setErro('Erro ao carregar dados. Tente novamente.')
@@ -212,27 +249,43 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            <div className="border rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Atrasados por turma</p>
-              {atrasados.length === 0 ? (
+            <div className="border rounded-xl p-4 border-dashed border-gray-400">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Leitores por turma</p>
+              {leitoresPorTurma.length === 0 ? (
                 <div className="flex items-center gap-2 py-4">
-                  <span className="text-green-600">✓</span>
-                  <p className="text-sm text-gray-600">Nenhum empréstimo atrasado!</p>
+                  <span className="text-gray-500">•</span>
+                  <p className="text-sm text-gray-600">Sem leitores no período selecionado.</p>
                 </div>
-              ) : atrasados.map(({ turma, total }) => (
+              ) : leitoresPorTurma.map(({ turma, total }) => (
                 <div key={turma} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-none">
                   <span className="text-sm font-medium">{turma}</span>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${total >= 3 ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-800'}`}>
-                    {total} {total === 1 ? 'aluno' : 'alunos'}
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">
+                    {total} {total === 1 ? 'leitor' : 'leitores'}
                   </span>
                 </div>
               ))}
-              {atrasados.length > 0 && (
-                <a href="/emprestimos?status=ATRASADO" className="mt-3 block text-xs text-gray-400 hover:text-gray-600">
-                  Ver lista completa →
-                </a>
-              )}
             </div>
+          </div>
+
+          <div className="mt-4 border border-dashed border-gray-400 rounded-xl p-4">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Alunos leitores</p>
+            {alunosLeitores.length === 0 ? (
+              <p className="text-sm text-gray-400 py-3">Sem empréstimos no período selecionado.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {alunosLeitores.map((aluno, i) => (
+                  <div key={aluno.matricula} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{i + 1}. {aluno.nome}</p>
+                      <p className="text-xs text-gray-500 truncate">{aluno.turma} · {aluno.matricula}</p>
+                    </div>
+                    <span className="ml-3 text-xs font-medium px-2 py-0.5 rounded-full bg-purple-50 text-purple-800">
+                      {aluno.total}x
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
