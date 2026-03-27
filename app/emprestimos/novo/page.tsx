@@ -133,25 +133,50 @@ function NovoEmprestimoForm() {
     setBuscaLivro(termo)
     if (termo.length < 2) { setLivros([]); return }
 
+    const termoTrim = termo.trim()
+    const isTombo = /^\d+$/.test(termoTrim)
+
+    if (isTombo) {
+      const { data } = await supabase
+        .from('livros_exemplares')
+        .select('id, tombo, disponivel, acervo:acervo_id(titulo, autor)')
+        .eq('disponivel', true)
+        .eq('tombo', Number(termoTrim))
+        .limit(8)
+
+      if (!data) return
+      setLivros(
+        data.map(ex => ({
+          exemplar_id: ex.id,
+          tombo: ex.tombo,
+          titulo: (ex.acervo as any)?.titulo ?? '',
+          autor: (ex.acervo as any)?.autor ?? '',
+          disponivel: ex.disponivel,
+        }))
+      )
+      return
+    }
+
     const { data } = await supabase
       .from('acervo')
       .select('id, titulo, autor, livros_exemplares!inner(id, tombo, disponivel)')
-      .or(`titulo.ilike.%${termo}%,autor.ilike.%${termo}%`)
+      .or(`titulo.ilike.%${termoTrim}%,autor.ilike.%${termoTrim}%`)
       .eq('livros_exemplares.disponivel', true)
       .limit(8)
 
     if (!data) return
 
-    const exemplares: Livro[] = data.flatMap(obra =>
-      (obra.livros_exemplares as any[]).map(ex => ({
-        exemplar_id: ex.id,
-        tombo: ex.tombo,
-        titulo: obra.titulo,
-        autor: obra.autor ?? '',
-        disponivel: ex.disponivel,
-      }))
+    setLivros(
+      data.flatMap(obra =>
+        (obra.livros_exemplares as any[]).map(ex => ({
+          exemplar_id: ex.id,
+          tombo: ex.tombo,
+          titulo: obra.titulo,
+          autor: obra.autor ?? '',
+          disponivel: ex.disponivel,
+        }))
+      )
     )
-    setLivros(exemplares)
   }
 
   async function confirmar() {
@@ -257,10 +282,10 @@ function NovoEmprestimoForm() {
             </button>
           </div>
 
-          <p className="text-xs font-medium text-gray-500 mb-2">Buscar livro disponível</p>
+          <p className="text-xs font-medium text-gray-500 mb-2">Buscar livro disponível (título, autor ou tombo)</p>
           <input
             autoFocus
-            placeholder="Ex: Dom Casmurro ou Machado"
+            placeholder="Ex: Dom Casmurro, Machado ou tombo 1234"
             className="w-full mb-3"
             value={buscaLivro}
             onChange={e => buscarLivros(e.target.value)}

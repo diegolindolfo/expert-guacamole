@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ModalDevolucao from '@/components/ModalDevolucao'
 import ModalRenovacao from '@/components/ModalRenovacao'
@@ -13,6 +14,7 @@ type Emprestimo = {
   turma: string
   titulo: string
   autor: string
+  tombo: number | null
   data_saida: string
   prazo_final: string
   data_devolucao_real: string | null
@@ -34,6 +36,7 @@ function fmt(d: string) {
 }
 
 export default function EmprestimosPage() {
+  const searchParams = useSearchParams()
   const [emprestimos, setEmprestimos]       = useState<Emprestimo[]>([])
   const [busca, setBusca]                   = useState('')
   const [buscaDebounced, setBuscaDebounced] = useState('')
@@ -43,6 +46,11 @@ export default function EmprestimosPage() {
   const [modalDevolucao, setModalDevolucao] = useState<Emprestimo | null>(null)
   const [modalRenovacao, setModalRenovacao] = useState<Emprestimo | null>(null)
   const [erroExport, setErroExport]         = useState('')
+
+  useEffect(() => {
+    const statusParam = searchParams.get('status')
+    if (statusParam) setFiltroStatus(statusParam)
+  }, [searchParams])
 
   useEffect(() => {
     const t = setTimeout(() => setBuscaDebounced(busca), 350)
@@ -61,8 +69,12 @@ export default function EmprestimosPage() {
 
     if (filtroStatus) query = query.eq('status', filtroStatus)
     if (buscaDebounced) {
+      const termo = buscaDebounced.trim()
+      const isTombo = /^\d+$/.test(termo)
       query = query.or(
-        `aluno_nome.ilike.%${buscaDebounced}%,titulo.ilike.%${buscaDebounced}%`
+        isTombo
+          ? `aluno_nome.ilike.%${termo}%,titulo.ilike.%${termo}%,tombo.eq.${termo}`
+          : `aluno_nome.ilike.%${termo}%,titulo.ilike.%${termo}%`
       )
     }
 
@@ -131,33 +143,33 @@ export default function EmprestimosPage() {
 
       {/* Cards de resumo */}
       <div className="grid grid-cols-4 gap-3 mb-6">
-        <div className="bg-gray-50 rounded-xl p-4">
+        <div className="bg-gray-50 rounded-xl p-4 border border-dashed border-gray-400">
           <p className="text-xs text-gray-500 mb-1">Ativos</p>
           <p className="text-2xl font-mono font-medium">{carregando ? '—' : ativos}</p>
         </div>
-        <div className="bg-gray-50 rounded-xl p-4">
+        <div className="bg-gray-50 rounded-xl p-4 border border-dashed border-gray-400">
           <p className="text-xs text-gray-500 mb-1">Renovados</p>
           <p className="text-2xl font-mono font-medium">{carregando ? '—' : renovados}</p>
         </div>
-        <div className="bg-red-50 rounded-xl p-4">
+        <div className="bg-red-50 rounded-xl p-4 border border-dashed border-red-300">
           <p className="text-xs text-red-600 mb-1">Atrasados</p>
           <p className="text-2xl font-mono font-medium text-red-700">{carregando ? '—' : atrasados}</p>
         </div>
-        <div className="bg-gray-50 rounded-xl p-4">
+        <div className="bg-gray-50 rounded-xl p-4 border border-dashed border-gray-400">
           <p className="text-xs text-gray-500 mb-1">Registros exibidos</p>
           <p className="text-2xl font-mono font-medium">{carregando ? '—' : emprestimos.length}</p>
         </div>
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-3 mb-4 rounded-xl border border-dashed border-gray-500 bg-white p-3 shadow-sm">
         <input
-          placeholder="Buscar aluno ou livro..."
-          className="flex-1"
+          placeholder="Buscar aluno, título ou tombo..."
+          className="flex-[2] min-w-[320px] border-gray-300"
           value={busca}
           onChange={e => setBusca(e.target.value)}
         />
-        <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="min-w-40">
+        <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="min-w-52 border-gray-300">
           <option value="">Todos os status</option>
           <option value="EMPRESTADO">Emprestado</option>
           <option value="RENOVADO">Renovado</option>
@@ -175,7 +187,7 @@ export default function EmprestimosPage() {
       </div>
 
       {/* Tabela */}
-      <div className="border rounded-xl overflow-hidden">
+      <div className="border border-dashed border-gray-500 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
             <tr>
@@ -190,14 +202,16 @@ export default function EmprestimosPage() {
             ) : emprestimos.length === 0 ? (
               <tr><td colSpan={6} className="text-center py-12 text-gray-400">Nenhum empréstimo encontrado</td></tr>
             ) : emprestimos.map(e => (
-              <tr key={e.emprestimo_id} className={`border-t hover:bg-gray-50 ${e.em_atraso ? 'bg-red-50/30' : ''}`}>
+              <tr key={e.emprestimo_id} className={`border-t border-gray-300 hover:bg-gray-50 ${e.em_atraso ? 'bg-red-50/30' : ''}`}>
                 <td className="px-4 py-3">
                   <p className="font-medium">{e.aluno_nome}</p>
                   <p className="text-xs text-gray-400">{e.turma} · {e.matricula}</p>
                 </td>
                 <td className="px-4 py-3">
                   <p className="truncate max-w-[180px]">{e.titulo}</p>
-                  <p className="text-xs text-gray-400 truncate max-w-[180px]">{e.autor}</p>
+                  <p className="text-xs text-gray-400 truncate max-w-[180px]">
+                    {e.autor}{e.tombo ? ` · tombo #${e.tombo}` : ''}
+                  </p>
                 </td>
                 <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(e.data_saida)}</td>
                 <td className={`px-4 py-3 whitespace-nowrap ${e.em_atraso ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
